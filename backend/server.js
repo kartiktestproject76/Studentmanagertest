@@ -1,10 +1,34 @@
-const crypto=require('crypto'),express=require('express'),{MongoClient,ObjectId}=require('mongodb'),pino=require('pino'),QRCode=require('qrcode');
+const crypto=require('crypto'),express=require('express'),{createClient}=require('@libsql/client'),pino=require('pino'),QRCode=require('qrcode');
 const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
 app.use(require('helmet')({crossOriginResourcePolicy:{policy:'cross-origin'}}));
 app.use(require('compression')());app.use(express.json({limit:'500kb'}));
 app.use('/api',(req,res,next)=>{res.set('Cache-Control','no-store');next()});
+
 let db;
-const col=n=>db.collection(n);
+class ObjectId {constructor(id){this.id=String(id||crypto.randomBytes(12).toString('hex'))}toString(){return this.id}toJSON(){return this.id}getTimestamp(){return new Date(parseInt(this.id.slice(0,8),16)*1000)}}
+const decode=v=>{if(Array.isArray(v))return v.map(decode);if(v&&typeof v==='object'){if(v.$date)return new Date(v.$date);if(v.$oid)return new ObjectId(v.$oid);for(const k of Object.keys(v))v[k]=decode(v[k]);return v}if(typeof v==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v))return new Date(v);return v};
+const encode=v=>{if(v instanceof Date)return {$date:v.toISOString()};if(v instanceof ObjectId)return {$oid:v.toString()};if(Array.isArray(v))return v.map(encode);if(v&&typeof v==='object'){const o={};for(const k of Object.keys(v))o[k]=encode(v[k]);return o}return v};
+const plain=v=>JSON.parse(JSON.stringify(encode(v)));
+const get=(o,p)=>p.split('.').reduce((a,k)=>a==null?undefined:a[k],o);
+const eq=(a,b)=>a instanceof Date&&b instanceof Date?a.getTime()===b.getTime():String(a instanceof ObjectId?a.toString():a)===String(b instanceof ObjectId?b.toString():b);
+const matches=(doc,q={})=>Object.entries(q).every(([k,w])=>{if(k==='$or')return w.some(x=>matches(doc,x));const v=get(doc,k);if(w&&typeof w==='object'&&!Array.isArray(w)&&!(w instanceof Date)&&!(w instanceof ObjectId))return Object.entries(w).every(([op,x])=>op==='$gte'?v>=x:op==='$lte'?v<=x:op==='$ne'?!eq(v,x):op==='$in'?x.some(y=>eq(v,y)):false);return eq(v,w)});
+class Cursor {constructor(rows){this.rows=rows}sort(spec){const [[k,d]]=Object.entries(spec||{});this.rows.sort((a,b)=>{const x=get(a,k),y=get(b,k);return(x<y?-1:x>y?1:0)*(d<0?-1:1)});return this}limit(n){this.rows=this.rows.slice(0,n);return this}async toArray(){return this.rows}}
+class Collection {
+ constructor(name){this.name=name}
+ async all(){const r=await db.execute({sql:'SELECT data FROM records WHERE collection=?',args:[this.name]});return r.rows.map(x=>decode(JSON.parse(x.data)))}
+ async findOne(q={}){return(await this.all()).find(x=>matches(x,q))||null}
+ find(q={}){return new CursorPromise(this.all().then(a=>a.filter(x=>matches(x,q))))}
+ async insertOne(doc){const d=decode(plain(doc));if(d._id===undefined)d._id=new ObjectId();await db.execute({sql:'INSERT INTO records(collection,id,data) VALUES(?,?,?)',args:[this.name,String(d._id),JSON.stringify(plain(d))]});return{insertedId:d._id}}
+ async insertMany(docs){for(const d of docs)await this.insertOne(d);return{insertedCount:docs.length}}
+ async updateOne(q,u,opts={}){let d=await this.findOne(q),ins=false;if(!d&&opts.upsert){d={};for(const[k,v]of Object.entries(q))if(!k.startsWith('$')&&!(v&&typeof v==='object'&&!Array.isArray(v)))d[k]=v;d._id=d._id??new ObjectId();ins=true}if(!d)return{matchedCount:0,modifiedCount:0};if(u.$set)Object.assign(d,decode(plain(u.$set)));if(ins&&u.$setOnInsert)Object.assign(d,decode(plain(u.$setOnInsert)));if(u.$inc)for(const[k,v]of Object.entries(u.$inc))d[k]=(d[k]||0)+v;await db.execute({sql:'INSERT INTO records(collection,id,data) VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data',args:[this.name,String(d._id),JSON.stringify(plain(d))]});return{matchedCount:ins?0:1,modifiedCount:1,upsertedId:ins?d._id:null}}
+ async deleteOne(q){const d=await this.findOne(q);if(d)await db.execute({sql:'DELETE FROM records WHERE collection=? AND id=?',args:[this.name,String(d._id)]});return{deletedCount:d?1:0}}
+ async deleteMany(q){const a=(await this.all()).filter(x=>matches(x,q));for(const d of a)await db.execute({sql:'DELETE FROM records WHERE collection=? AND id=?',args:[this.name,String(d._id)]});return{deletedCount:a.length}}
+ async countDocuments(q={}){return(await this.all()).filter(x=>matches(x,q)).length}
+ async createIndex(){return 'compat-index'}
+}
+class CursorPromise extends Cursor{constructor(p){super([]);this.promise=p}sort(s){this.sortSpec=s;return this}limit(n){this.limitN=n;return this}async toArray(){let a=await this.promise;const c=new Cursor(a);if(this.sortSpec)c.sort(this.sortSpec);if(this.limitN)c.limit(this.limitN);return c.rows}}
+const col=n=>new Collection(n);
+
 class HttpErr extends Error{constructor(s,m){super(m);this.s=s}}
 const bad=m=>new HttpErr(400,m);
 const h=f=>(req,res)=>f(req,res).catch(e=>{if(e&&e.s)return res.status(e.s).json({error:e.message});console.error(e);res.status(500).json({error:'Something went wrong. Please try again.'})});
@@ -322,8 +346,10 @@ app.post('/api/send-all',limit(30,3600e3,r=>'sendall|'+r.user.email),h(async(req
 app.use('/api',(req,res)=>res.status(404).json({error:'Not found'}));
 app.use((err,req,res,next)=>{res.status(err&&err.status&&err.status<500?err.status:400).json({error:'Invalid request'})});
 
-(async()=>{try{ const client=new MongoClient(process.env.MONGODB_URI,{maxPoolSize:10});await client.connect();
- db=client.db(process.env.DB_NAME||'studentmanager');
+(async()=>{try{ const url=process.env.TURSO_DATABASE_URL,authToken=process.env.TURSO_AUTH_TOKEN;
+ if(!url)throw new Error('TURSO_DATABASE_URL is required');
+ db=createClient({url,authToken});
+ await db.execute('CREATE TABLE IF NOT EXISTS records (collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(collection,id))');
  await col('attendance').createIndex({student_id:1,date:1},{unique:true});
  await col('marks').createIndex({student_id:1,exam:1},{unique:true});
  await col('sessions').createIndex({expires:1},{expireAfterSeconds:0});await col('otps').createIndex({expires:1},{expireAfterSeconds:0});
