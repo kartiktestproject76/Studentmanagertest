@@ -209,6 +209,7 @@ app.get('/api/attendance',h(async(req,res)=>{
  const r=await col('attendance').find({date:needDate(req.query.date)}).toArray();
  res.json(r.map(a=>({student_id:a.student_id,status:a.status,sent:!!a.sent})))}));
 app.put('/api/attendance',h(async(req,res)=>{const b=req.body,f={student_id:needId(b.student_id),date:needDate(b.date)};
+ if(b.status==='C'){await col('attendance').deleteOne(f);return res.json({ok:true,cleared:true})}
  if(b.status!=='P'&&b.status!=='A')throw bad('Invalid status.');
  const cur=await col('attendance').findOne(f);
  await col('attendance').updateOne(f,{$set:{status:b.status,sent:cur&&cur.status===b.status?!!cur.sent:false}},{upsert:true});res.json({ok:true})}));

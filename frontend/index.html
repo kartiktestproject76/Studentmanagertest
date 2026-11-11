@@ -42,10 +42,8 @@ small{color:var(--mut);display:block}
 .cta.full{width:100%;margin-bottom:14px}
 .hintline{color:var(--mut);font-size:13px;margin:0 2px 10px}
 .row{position:relative;margin-bottom:10px;border-radius:20px;overflow:hidden}
-.hint{position:absolute;top:0;bottom:0;width:50%;display:flex;align-items:center;gap:8px;padding:0 20px;font-weight:700}
-.hint.l{left:0;background:rgba(25,214,91,.3);color:#7dffa8}.hint.r{right:0;background:rgba(255,59,85,.3);color:#ff9aa8;justify-content:flex-end}
 .srow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border-radius:20px;background:linear-gradient(90deg,rgba(40,48,140,.75),rgba(24,30,100,.7));border:1px solid var(--bd);box-shadow:inset 4px 0 0 rgba(59,124,255,.9),0 6px 20px rgba(0,0,30,.35);margin-bottom:10px}
-.row .srow{background:linear-gradient(90deg,#252d86,#161c60);margin:0;position:relative;touch-action:pan-y;transition:transform .2s;user-select:none}
+.row .srow{background:linear-gradient(90deg,#252d86,#161c60);margin:0;position:relative;touch-action:auto;user-select:auto}
 .srow.p{box-shadow:inset 4px 0 0 var(--ok),0 6px 20px rgba(0,0,30,.35)}.srow.a{box-shadow:inset 4px 0 0 var(--no),0 6px 20px rgba(0,0,30,.35)}
 .av{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:19px;color:#fff;border:2px solid #fff5;box-shadow:0 0 0 3px rgba(130,110,255,.35);flex:none}
 .who{min-width:90px;flex:1}.who b{font-size:18px}
@@ -55,6 +53,7 @@ small{color:var(--mut);display:block}
 .pa.no{background:linear-gradient(180deg,#d4203d,#7d0f2a);box-shadow:0 0 12px rgba(255,59,85,.3)}
 .pa.dim{opacity:.45;box-shadow:none}.pa.sel{outline:2px solid #fff8}
 .send{background:linear-gradient(90deg,#9a4dff,#3b7cff);color:#fff;border-radius:14px;padding:10px 16px;font-size:14px;box-shadow:0 0 14px rgba(110,90,255,.45)}
+.pa.clear{background:rgba(126,139,205,.18);border:1px solid rgba(190,198,255,.32);color:#e1e5ff;box-shadow:none}.pa.clear:disabled{display:none}
 .card{background:var(--gl);border:1px solid var(--bd);border-radius:22px;padding:16px;margin-bottom:14px;backdrop-filter:blur(8px)}
 .card h3{margin:0 0 10px;font-size:17px;display:flex;align-items:center;gap:8px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.two .fi{margin-bottom:0}
@@ -76,8 +75,8 @@ small{color:var(--mut);display:block}
 .empty{color:var(--mut);text-align:center;padding:30px 8px}
 input[type=file]{color:var(--mut);max-width:100%}
 input[type=file]::file-selector-button{background:#aeb6e8;color:#141a50;border:0;border-radius:8px;padding:8px 12px;margin-right:10px;font-weight:600;cursor:pointer}
-#bn{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:4px;padding:8px;border-radius:26px;background:rgba(18,22,82,.85);border:1px solid var(--bd);backdrop-filter:blur(12px);z-index:5;max-width:600px;margin:0 auto}
-#bn button,.sn button{flex:1;background:transparent;color:var(--mut);border-radius:20px;padding:12px 8px;font-size:14px}
+#bn{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:4px;padding:8px;border-radius:26px;background:rgba(18,22,82,.92);border:1px solid var(--bd);backdrop-filter:blur(12px);z-index:5;width:calc(100% - 24px);max-width:600px;margin:0 auto;min-width:0}
+#bn button,.sn button{flex:1 1 0;min-width:0;white-space:nowrap;background:transparent;color:var(--mut);border-radius:20px;padding:12px 8px;font-size:14px}
 #bn button.on,.sn button.on{background:linear-gradient(90deg,#9a4dff,#3b7cff);color:#fff;box-shadow:0 0 18px rgba(110,90,255,.6)}
 dialog{border:1px solid var(--bd);border-radius:26px;background:linear-gradient(160deg,rgba(40,46,150,.97),rgba(14,18,70,.98));color:var(--tx);width:min(94vw,640px);max-height:92vh;padding:20px;box-shadow:0 0 40px rgba(110,90,255,.35)}
 dialog::backdrop{background:rgba(3,6,25,.72);backdrop-filter:blur(5px)}
@@ -97,7 +96,8 @@ dialog h2{margin:0;font-size:22px}dialog p{margin:2px 0 0;color:var(--mut);font-
 .vars{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:13px;color:var(--mut)}
 .chip{background:rgba(70,60,200,.55);border:1px solid var(--bd);color:#fff;border-radius:999px;padding:4px 12px;font-size:13px;font-weight:500}
 @media(min-width:700px){.stats{grid-template-columns:repeat(3,1fr) 1.4fr}.filters{grid-template-columns:1fr 1fr 1.4fr}.filters .grow{grid-column:auto}.cta.inline{margin:0}}
-@media(max-width:640px){.stats .cta{grid-column:1/-1}.stat{padding:10px;gap:8px}.stat .ico{width:34px;height:34px}.stat b{font-size:22px}.stat small{font-size:12px}.pill{padding:9px 12px;font-size:13px}.act{width:100%;justify-content:space-between;margin-left:0}.pa,.send{flex:1;padding:10px 8px}.edit{grid-template-columns:1fr}.mpanel{flex-direction:column}.two{grid-template-columns:1fr}.top h1{font-size:26px}}
+@media(max-width:640px){.stats .cta{grid-column:1/-1}.stat{padding:10px;gap:8px}.stat .ico{width:34px;height:34px}.stat b{font-size:22px}.stat small{font-size:12px}.pill{padding:9px 12px;font-size:13px}.act{width:100%;justify-content:stretch;margin-left:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.pa,.send{min-width:0;padding:10px 4px;font-size:12px;gap:4px}.pa .i,.send .i{width:16px;height:16px}.edit{grid-template-columns:1fr}.mpanel{flex-direction:column}.two{grid-template-columns:1fr}.top h1{font-size:26px}#bn{left:8px;right:8px;width:calc(100% - 16px);gap:2px;padding:6px;border-radius:20px}#bn button{flex:1 1 0;min-width:0;flex-direction:column;gap:3px;padding:7px 2px;font-size:10px;line-height:1.15;border-radius:14px}#bn button .i{width:19px;height:19px}}
+@media(max-width:360px){.srow{gap:8px;padding:10px}.av{width:42px;height:42px}.who b{font-size:15px}.act{grid-template-columns:repeat(2,minmax(0,1fr))}.pa,.send{font-size:12px}#bn button{font-size:9px}}
 @media(min-width:900px){
  #bn{display:none}body{padding-bottom:30px}
  #side{display:flex;flex-direction:column;align-items:center;text-align:center;position:fixed;left:0;top:0;bottom:0;width:250px;padding:34px 18px;background:linear-gradient(180deg,rgba(20,24,90,.7),rgba(10,12,50,.7));border-right:1px solid var(--bd)}
@@ -199,7 +199,7 @@ async function render(){
  try{
  if(pg==='att'){useAtt();$('#m').innerHTML=`<div class="filters"><label class="fi">${ico('calendar')}<input type="date" id="dt" value="${date}"></label>${filt()}</div>
   <div class="stats"><div class="stat g"><span class="ico">${ico('check')}</span><div><small>Present</small><b id="cP">0</b></div></div><div class="stat r"><span class="ico">${ico('x')}</span><div><small>Absent</small><b id="cA">0</b></div></div><div class="stat b"><span class="ico">${ico('users')}</span><div><small>Not Marked</small><b id="cN">0</b></div></div><button id="all" class="cta inline">${SENDALL}</button></div>
-  <p class="hintline">Tip: swipe a row right for present, left for absent.</p><div id="lst"></div>`;drawAtt();loadAtt().catch(()=>{})}
+  <div id="lst"></div>`;drawAtt();loadAtt().catch(()=>{})}
  if(pg==='mk'){useMk();$('#m').innerHTML=`<div class="filters" style="grid-template-columns:1fr 110px">
   <label class="fi">${ico('book')}<input id="ex" placeholder="Exam or subject" value="${esc(exam)}"></label><label class="fi"><input id="tot" type="number" placeholder="Total" value="${esc(total)}"></label>${filt()}</div>
   <button id="all" class="cta full">${SENDALL}</button><div id="lst"></div>`;drawMk();loadMk().catch(()=>{})}
@@ -212,11 +212,13 @@ function drawAtt(){
  const L=list();let p=0,ab=0;L.forEach(s=>{const t=att[s.id];if(t&&t.status==='P')p++;if(t&&t.status==='A')ab++});
  $('#cP').textContent=p;$('#cA').textContent=ab;$('#cN').textContent=L.length-p-ab;
  $('#lst').innerHTML=L.length?L.map(s=>{const r=att[s.id],st=r&&r.status,k=st==='P'?'p':st==='A'?'a':'';
-  return `<div class="row" data-id="${s.id}"><div class="hint l">${ico('check')}Present</div><div class="hint r">Absent${ico('x')}</div><div class="fg srow ${k}">${av(s.name)}<div class="who"><b>${esc(s.name)}</b><small>${info(s)}</small></div><div class="act"><button class="pa ok ${st==='A'?'dim':''} ${st==='P'?'sel':''}" data-st="P">${ico('check')}Present</button><button class="pa no ${st==='P'?'dim':''} ${st==='A'?'sel':''}" data-st="A">${ico('x')}Absent</button><button class="send" data-send="${s.id}" ${st?'':'disabled'}>${ico('send')}${r&&r.sent?'Sent ✓':'Send'}</button></div></div></div>`}).join(''):emptyMsg;
+  return `<div class="row" data-id="${s.id}"><div class="fg srow ${k}">${av(s.name)}<div class="who"><b>${esc(s.name)}</b><small>${info(s)}</small></div><div class="act"><button class="pa ok ${st==='A'?'dim':''} ${st==='P'?'sel':''}" data-st="P">${ico('check')}Present</button><button class="pa no ${st==='P'?'dim':''} ${st==='A'?'sel':''}" data-st="A">${ico('x')}Absent</button><button class="pa clear" data-st="C" ${st?'':'disabled'} title="Clear attendance">${ico('x')}Clear</button><button class="send" data-send="${s.id}" ${st?'':'disabled'}>${ico('send')}${r&&r.sent?'Sent ✓':'Send'}</button></div></div></div>`}).join(''):emptyMsg;
 }
 async function setAtt(id,st){
- const old=att[id];att[id]={student_id:id,status:st,sent:old&&old.status===st&&old.sent};drawAtt();
- try{await api('/attendance',{method:'PUT',body:{student_id:id,date,status:st}})}catch(x){alert(x.message);att[id]=old;drawAtt()}}
+ const old=att[id];
+ if(st==='C'){if(!old)return;delete att[id]}else att[id]={student_id:id,status:st,sent:old&&old.status===st&&old.sent};
+ drawAtt();
+ try{await api('/attendance',{method:'PUT',body:{student_id:id,date,status:st}})}catch(x){alert(x.message);if(old)att[id]=old;else delete att[id];drawAtt()}}
 function drawMk(){
  const L=list();
  $('#lst').innerHTML=L.length?L.map(s=>{const r=mk[s.id];return `<div class="mk srow" data-id="${s.id}">${av(s.name)}<div class="who"><b>${esc(s.name)}</b><small>${info(s)}</small></div><div class="act"><label class="fi sm">${ico('bar')}<input type="number" step="any" placeholder="Marks" value="${r?esc(r.marks):''}"></label><button class="send" data-msend="${s.id}" style="${r?'':'display:none'}">${ico('send')}${r&&r.sent?'Sent ✓':'Send'}</button></div></div>`}).join(''):emptyMsg;
@@ -420,12 +422,7 @@ async function runQueue(){
  };
  $('#dlg').showModal();show();
 }
-const m=$('#m');let sx=0,cur=null,tm={};
-m.addEventListener('pointerdown',e=>{const f=e.target.closest('.fg');if(!f||e.target.closest('button'))return;cur=f;sx=e.clientX;f.style.transition='none';try{f.setPointerCapture(e.pointerId)}catch(x){}});
-m.addEventListener('pointermove',e=>{if(cur)cur.style.transform=`translateX(${Math.max(-140,Math.min(140,e.clientX-sx))}px)`});
-const end=e=>{if(!cur)return;const dx=e.clientX-sx,id=cur.parentNode.dataset.id;cur=null;
- if(Math.abs(dx)>80)setAtt(id,dx>0?'P':'A');else drawAtt()};
-m.addEventListener('pointerup',end);m.addEventListener('pointercancel',end);
+const m=$('#m');let tm={};
 m.addEventListener('input',e=>{const t=e.target;
  if(t.id==='q'){q=t.value;pg==='att'?drawAtt():pg==='mk'?drawMk():drawStu()}
  if(t.id==='ex'){exam=t.value;ls.s('exam',exam);clearTimeout(tm.e);tm.e=setTimeout(()=>{useMk();drawMk();loadMk().catch(()=>{})},400)}
