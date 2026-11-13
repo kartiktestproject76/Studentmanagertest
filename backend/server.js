@@ -5,7 +5,7 @@ app.use(require('compression')());app.use(express.json({limit:'500kb'}));
 app.use('/api',(req,res,next)=>{res.set('Cache-Control','no-store');next()});
 
 let db;
-class ObjectId {constructor(id){this.id=String(id||crypto.randomBytes(12).toString('hex'))}toString(){return this.id}toJSON(){return this.id}getTimestamp(){return new Date(parseInt(this.id.slice(0,8),16)*1000)}}
+class ObjectId {constructor(id){this.id=String(id||Math.floor(Date.now()/1000).toString(16).padStart(8,'0')+crypto.randomBytes(8).toString('hex'))}toString(){return this.id}toJSON(){return this.id}getTimestamp(){return new Date(parseInt(this.id.slice(0,8),16)*1000)}}
 const decode=v=>{if(Array.isArray(v))return v.map(decode);if(v&&typeof v==='object'){if(v.$date)return new Date(v.$date);if(v.$oid)return new ObjectId(v.$oid);for(const k of Object.keys(v))v[k]=decode(v[k]);return v}if(typeof v==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v))return new Date(v);return v};
 const encode=v=>{if(v instanceof Date)return {$date:v.toISOString()};if(v instanceof ObjectId)return {$oid:v.toString()};if(Array.isArray(v))return v.map(encode);if(v&&typeof v==='object'){const o={};for(const k of Object.keys(v))o[k]=encode(v[k]);return o}return v};
 const plain=v=>JSON.parse(JSON.stringify(encode(v)));
@@ -13,17 +13,40 @@ const get=(o,p)=>p.split('.').reduce((a,k)=>a==null?undefined:a[k],o);
 const eq=(a,b)=>a instanceof Date&&b instanceof Date?a.getTime()===b.getTime():String(a instanceof ObjectId?a.toString():a)===String(b instanceof ObjectId?b.toString():b);
 const matches=(doc,q={})=>Object.entries(q).every(([k,w])=>{if(k==='$or')return w.some(x=>matches(doc,x));const v=get(doc,k);if(w&&typeof w==='object'&&!Array.isArray(w)&&!(w instanceof Date)&&!(w instanceof ObjectId))return Object.entries(w).every(([op,x])=>op==='$gte'?v>=x:op==='$lte'?v<=x:op==='$ne'?!eq(v,x):op==='$in'?x.some(y=>eq(v,y)):false);return eq(v,w)});
 class Cursor {constructor(rows){this.rows=rows}sort(spec){const [[k,d]]=Object.entries(spec||{});this.rows.sort((a,b)=>{const x=get(a,k),y=get(b,k);return(x<y?-1:x>y?1:0)*(d<0?-1:1)});return this}limit(n){this.rows=this.rows.slice(0,n);return this}async toArray(){return this.rows}}
+const sessCache=new Map();
+const FIELD=/^[A-Za-z_][A-Za-z0-9_]*$/;
+// Turns simple conditions (equal, in, from/to on text) into SQL so only matching rows are read. The JS matcher still double-checks every row.
+function plan(name,q){
+ const where=['collection=?'],args=[name];
+ for(const [k,w] of Object.entries(q||{})){
+  if(k==='_id'){
+   if(typeof w==='string'||w instanceof ObjectId){where.push('id=?');args.push(String(w))}
+   else if(w&&Array.isArray(w.$in)&&w.$in.length&&w.$in.length<=3000){where.push('id IN ('+w.$in.map(()=>'?').join(',')+')');args.push(...w.$in.map(String))}
+   continue}
+  if(!FIELD.test(k))continue;
+  const p="json_extract(data,'$."+k+"')";
+  if(typeof w==='string'){where.push(p+'=?');args.push(w)}
+  else if(w&&typeof w==='object'&&!Array.isArray(w)&&!(w instanceof Date)&&!(w instanceof ObjectId)){
+   if(Array.isArray(w.$in)&&w.$in.length&&w.$in.length<=3000&&w.$in.every(x=>typeof x==='string')){where.push(p+' IN ('+w.$in.map(()=>'?').join(',')+')');args.push(...w.$in)}
+   if(typeof w.$gte==='string'){where.push(p+'>=?');args.push(w.$gte)}
+   if(typeof w.$lte==='string'){where.push(p+'<=?');args.push(w.$lte)}}}
+ return{sql:'SELECT data FROM records WHERE '+where.join(' AND '),args}}
 class Collection {
  constructor(name){this.name=name}
- async all(){const r=await db.execute({sql:'SELECT data FROM records WHERE collection=?',args:[this.name]});return r.rows.map(x=>decode(JSON.parse(x.data)))}
- async findOne(q={}){return(await this.all()).find(x=>matches(x,q))||null}
- find(q={}){return new CursorPromise(this.all().then(a=>a.filter(x=>matches(x,q))))}
+ async rows(q){const p=plan(this.name,q);const r=await db.execute({sql:p.sql,args:p.args});return r.rows.map(x=>decode(JSON.parse(x.data)))}
+ async all(){return this.rows({})}
+ async findOne(q={}){return(await this.rows(q)).find(x=>matches(x,q))||null}
+ find(q={}){return new CursorPromise(this.rows(q).then(a=>a.filter(x=>matches(x,q))))}
  async insertOne(doc){const d=decode(plain(doc));if(d._id===undefined)d._id=new ObjectId();await db.execute({sql:'INSERT INTO records(collection,id,data) VALUES(?,?,?)',args:[this.name,String(d._id),JSON.stringify(plain(d))]});return{insertedId:d._id}}
- async insertMany(docs){for(const d of docs)await this.insertOne(d);return{insertedCount:docs.length}}
+ async insertMany(docs){if(!docs.length)return{insertedCount:0};
+  const st=docs.map(doc=>{const d=decode(plain(doc));if(d._id===undefined)d._id=new ObjectId();return{sql:'INSERT INTO records(collection,id,data) VALUES(?,?,?)',args:[this.name,String(d._id),JSON.stringify(plain(d))]}});
+  for(let i=0;i<st.length;i+=200)await db.batch(st.slice(i,i+200),'write');return{insertedCount:docs.length}}
  async updateOne(q,u,opts={}){let d=await this.findOne(q),ins=false;if(!d&&opts.upsert){d={};for(const[k,v]of Object.entries(q))if(!k.startsWith('$')&&!(v&&typeof v==='object'&&!Array.isArray(v)))d[k]=v;d._id=d._id??new ObjectId();ins=true}if(!d)return{matchedCount:0,modifiedCount:0};if(u.$set)Object.assign(d,decode(plain(u.$set)));if(ins&&u.$setOnInsert)Object.assign(d,decode(plain(u.$setOnInsert)));if(u.$inc)for(const[k,v]of Object.entries(u.$inc))d[k]=(d[k]||0)+v;await db.execute({sql:'INSERT INTO records(collection,id,data) VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data',args:[this.name,String(d._id),JSON.stringify(plain(d))]});return{matchedCount:ins?0:1,modifiedCount:1,upsertedId:ins?d._id:null}}
- async deleteOne(q){const d=await this.findOne(q);if(d)await db.execute({sql:'DELETE FROM records WHERE collection=? AND id=?',args:[this.name,String(d._id)]});return{deletedCount:d?1:0}}
- async deleteMany(q){const a=(await this.all()).filter(x=>matches(x,q));for(const d of a)await db.execute({sql:'DELETE FROM records WHERE collection=? AND id=?',args:[this.name,String(d._id)]});return{deletedCount:a.length}}
- async countDocuments(q={}){return(await this.all()).filter(x=>matches(x,q)).length}
+ async deleteOne(q){const d=await this.findOne(q);if(d)await db.execute({sql:'DELETE FROM records WHERE collection=? AND id=?',args:[this.name,String(d._id)]});if(this.name==='sessions')sessCache.clear();return{deletedCount:d?1:0}}
+ async deleteMany(q){const a=await this.find(q).toArray();
+  for(let i=0;i<a.length;i+=200){const ids=a.slice(i,i+200).map(d=>String(d._id));await db.execute({sql:'DELETE FROM records WHERE collection=? AND id IN ('+ids.map(()=>'?').join(',')+')',args:[this.name,...ids]})}
+  if(this.name==='sessions')sessCache.clear();return{deletedCount:a.length}}
+ async countDocuments(q={}){return(await this.find(q).toArray()).length}
  async createIndex(){return 'compat-index'}
 }
 class CursorPromise extends Cursor{constructor(p){super([]);this.promise=p}sort(s){this.sortSpec=s;return this}limit(n){this.limitN=n;return this}async toArray(){let a=await this.promise;const c=new Cursor(a);if(this.sortSpec)c.sort(this.sortSpec);if(this.limitN)c.limit(this.limitN);return c.rows}}
@@ -39,6 +62,7 @@ const needId=v=>{if(!isId(v))throw bad('Invalid student.');return v};
 const isDate=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&!isNaN(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
 const needDate=v=>{if(!isDate(v))throw bad('Invalid date.');return v};
 const isMonth=v=>typeof v==='string'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+const markTime=x=>{if(x.at instanceof Date)return x.at;const t=x._id.getTimestamp(),y=t.getUTCFullYear();return(y>=2024&&y<=2100)?t:new Date()};
 const num=(v,min,max)=>{const n=typeof v==='number'?v:(typeof v==='string'&&v.trim()!==''?Number(v):NaN);if(!Number.isFinite(n)||n<min||n>max)throw bad('Invalid number.');return n};
 const okPhone=p=>p===''||/^[0-9+\-\s()]{3,20}$/.test(p);
 const fd=d=>String(d).slice(0,10).split('-').reverse().join('-');
@@ -94,7 +118,7 @@ async function sendMail(to,subject,html){
   body:JSON.stringify({sender:{name:process.env.MAIL_FROM_NAME||'Student Manager',email:process.env.MAIL_FROM},to:[{email:to}],subject,htmlContent:html})});
  if(!r.ok){const t=await r.text().catch(()=>'');console.error('Brevo error',r.status,t.slice(0,300));throw new HttpErr(502,'Could not send the email. Please try again.')}}
 
-app.post('/api/auth/request',limit(10,10*60*1000),h(async(req,res)=>{
+app.post('/api/auth/request',limit(60,10*60*1000),h(async(req,res)=>{
  const email=normEmail(req.body.email);
  if(!okEmail(email))throw bad('Enter a valid email');
  const now=Date.now();
@@ -108,7 +132,7 @@ app.post('/api/auth/request',limit(10,10*60*1000),h(async(req,res)=>{
   await col('otps').updateOne({_id:email},{$set:{hash:hashOtp(email,code),expires:new Date(now+OTP_MS),attempts:0}},{upsert:true});
   await sendMail(email,'Your Student Manager login code',`<div style="font-family:Arial,sans-serif"><p>Your login code is</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>It is valid for 10 minutes. Do not share it with anyone.</p></div>`)}
  res.json({ok:true})}));
-app.post('/api/auth/verify',limit(20,10*60*1000),h(async(req,res)=>{
+app.post('/api/auth/verify',limit(120,10*60*1000),h(async(req,res)=>{
  const email=normEmail(req.body.email),code=str(req.body.code,12),now=Date.now();
  if(!okEmail(email)||!/^\d{6}$/.test(code))throw bad('Enter the 6-digit code.');
  const f=fails.get(email)||{n:0,first:now,until:0};
@@ -141,7 +165,10 @@ app.use('/api',async(req,res,next)=>{
  try{
   if(req.path==='/auth/request'||req.path==='/auth/verify')return next();
   const tok=(req.get('authorization')||'').replace(/^Bearer\s+/i,'');
-  const ses=tok?await col('sessions').findOne({_id:sha(tok)}):null;
+  let ses=null;
+  if(tok){const key=sha(tok),c=sessCache.get(key);
+   if(c&&c.t>Date.now()-30000)ses=c.s;
+   else{ses=await col('sessions').findOne({_id:key});if(sessCache.size>2000)sessCache.clear();if(ses)sessCache.set(key,{s:ses,t:Date.now()});else sessCache.delete(key)}}
   if(!ses||ses.expires<new Date())return res.status(401).json({error:'Your session ended. Please log in again.'});
   req.user=ses;
   if(!allowed(ses.role,req.method,req.path))return res.status(403).json({error:'You do not have access to this.'});
@@ -162,7 +189,9 @@ app.delete('/api/users/:email',h(async(req,res)=>{
  const u=await col('users').findOne({_id:email});
  if(u&&u.role==='admin'&&await col('users').countDocuments({role:'admin'})<=1)throw bad('Keep at least one admin.');
  await col('users').deleteOne({_id:email});await col('sessions').deleteMany({email});await audit(req,'user_removed',email);res.json({ok:true})}));
-app.get('/api/audit',h(async(req,res)=>res.json((await col('audit').find({}).sort({at:-1}).limit(100).toArray()).map(a=>({at:a.at,who:a.who,role:a.role,action:a.action,detail:a.detail,ip:a.ip})))));
+app.get('/api/audit',h(async(req,res)=>{
+ const r=await db.execute({sql:"SELECT data FROM records WHERE collection='audit' ORDER BY json_extract(data,'$.at.\"$date\"') DESC LIMIT 100",args:[]});
+ res.json(r.rows.map(x=>decode(JSON.parse(x.data))).map(a=>({at:a.at,who:a.who,role:a.role,action:a.action,detail:a.detail,ip:a.ip})))}));
 app.get('/api/my',h(async(req,res)=>{
  const s=(await getStudents()).find(x=>x.id===req.user.student_id);
  if(!s)throw new HttpErr(404,'Your student record was not found. Please ask the admin.');
@@ -221,7 +250,7 @@ app.put('/api/marks',h(async(req,res)=>{const b=req.body,f={student_id:needId(b.
  if(b.marks===''||b.marks==null){await col('marks').deleteOne(f);return res.json({ok:true})}
  const cur=await col('marks').findOne(f),mk=num(b.marks,0,100000),tt=num(b.total,0.01,100000);
  const same=cur&&cur.marks===mk&&cur.total===tt;
- await col('marks').updateOne(f,{$set:{marks:mk,total:tt,sent:same?!!cur.sent:false}},{upsert:true});res.json({ok:true})}));
+ await col('marks').updateOne(f,{$set:{marks:mk,total:tt,sent:same?!!cur.sent:false},$setOnInsert:{at:new Date()}},{upsert:true});res.json({ok:true})}));
 
 app.get('/api/report',h(async(req,res)=>{
  const month=req.query.month,cls=str(req.query.cls,20),student_id=req.query.student_id;
@@ -232,7 +261,7 @@ app.get('/api/report',h(async(req,res)=>{
  const S=await col('students').find(f).sort({_id:1}).toArray(),ids=S.map(s=>String(s._id));
  const A=await col('attendance').find({student_id:{$in:ids},date:{$gte:from,$lte:to}}).toArray();
  const t0=new Date(Date.UTC(y,mo-1,1)),t1=new Date(Date.UTC(y,mo,1));
- const M=(await col('marks').find({student_id:{$in:ids}}).toArray()).filter(x=>{const t=x._id.getTimestamp();return t>=t0&&t<t1});
+ const M=(await col('marks').find({student_id:{$in:ids}}).toArray()).filter(x=>{const t=markTime(x);return t>=t0&&t<t1});
  await audit(req,'report',(student_id?'student ':'standard '+cls+' ')+month);
  res.json({month,days,
   students:S.map(s=>({id:String(s._id),name:s.name,cls:s.cls,roll:s.roll,phone:s.phone})),
@@ -351,6 +380,11 @@ app.use((err,req,res,next)=>{res.status(err&&err.status&&err.status<500?err.stat
  if(!url)throw new Error('TURSO_DATABASE_URL is required');
  db=createClient({url,authToken});
  await db.execute('CREATE TABLE IF NOT EXISTS records (collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(collection,id))');
+ for(const f of ['student_id','date','exam','email','role','cls']){try{await db.execute("CREATE INDEX IF NOT EXISTS ix_rec_"+f+" ON records(collection, json_extract(data,'$."+f+"'))")}catch(e){console.warn('Index '+f+' not created:',e.message)}}
+ const purge=async()=>{try{const now=new Date().toISOString();
+  await db.batch([{sql:"DELETE FROM records WHERE collection IN ('sessions','otps') AND json_extract(data,'$.expires.\"$date\"')<?",args:[now]},
+   {sql:"DELETE FROM records WHERE collection='audit' AND json_extract(data,'$.at.\"$date\"')<?",args:[new Date(Date.now()-90*864e5).toISOString()]}],'write')}catch(e){console.warn('Clean-up failed:',e.message)}};
+ await purge();setInterval(purge,30*60*1000).unref();
  await col('attendance').createIndex({student_id:1,date:1},{unique:true});
  await col('marks').createIndex({student_id:1,exam:1},{unique:true});
  await col('sessions').createIndex({expires:1},{expireAfterSeconds:0});await col('otps').createIndex({expires:1},{expireAfterSeconds:0});

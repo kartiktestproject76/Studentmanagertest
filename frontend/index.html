@@ -16,7 +16,7 @@ button{border:0;cursor:pointer;display:inline-flex;align-items:center;justify-co
 button:disabled{opacity:.45;cursor:default}
 small{color:var(--mut);display:block}
 #side{display:none}
-#ld{position:fixed;top:0;left:0;right:0;z-index:30;display:none;pointer-events:none}#ld.on{display:block}#ld .bar{height:3px;background:linear-gradient(90deg,#9a4dff,#22c7ff,#9a4dff);background-size:200% 100%;animation:ldm 1s linear infinite}#ld span{display:none;margin:8px auto 0;width:fit-content;max-width:92vw;background:rgba(18,22,82,.96);border:1px solid var(--bd);border-radius:12px;padding:8px 14px;font-size:13px}#ld.slow span{display:block}@keyframes ldm{to{background-position:-200% 0}}
+#ld{position:fixed;top:0;left:0;right:0;z-index:30;display:none;pointer-events:none}#ld.on{display:block}#ld .bar{height:3px;background:linear-gradient(90deg,#9a4dff,#22c7ff,#9a4dff);background-size:200% 100%;animation:ldm 1s linear infinite}#ld span{display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));margin:0;width:max-content;max-width:92vw;background:rgba(18,22,82,.96);border:1px solid var(--bd);border-radius:12px;padding:8px 14px;font-size:13px}#ld.slow span{display:block}@keyframes ldm{to{background-position:-200% 0}}
 .wrap{padding:0 16px;max-width:980px;margin:0 auto}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:20px 0 14px}
 .top h1{margin:0;font-size:30px;line-height:1.1}.top p{margin:4px 0 0;color:var(--mut);font-size:14px}
@@ -194,8 +194,9 @@ function chrome(){
  $('#msgb').style.display=role()==='admin'&&['att','mk','stu'].includes(pg)?'':'none';
  if(auth)$('#me').textContent=ini(auth.user.name||auth.user.email);
 }
+let rid=0;
 async function render(){
- chrome();
+ const my=++rid;chrome();
  try{
  if(pg==='att'){useAtt();$('#m').innerHTML=`<div class="filters"><label class="fi">${ico('calendar')}<input type="date" id="dt" value="${date}"></label>${filt()}</div>
   <div class="stats"><div class="stat g"><span class="ico">${ico('check')}</span><div><small>Present</small><b id="cP">0</b></div></div><div class="stat r"><span class="ico">${ico('x')}</span><div><small>Absent</small><b id="cA">0</b></div></div><div class="stat b"><span class="ico">${ico('users')}</span><div><small>Not Marked</small><b id="cN">0</b></div></div><button id="all" class="cta inline">${SENDALL}</button></div>
@@ -206,7 +207,7 @@ async function render(){
  if(pg==='stu')drawStu();
  if(pg==='usr')await drawUsr();
  if(pg==='me')await drawMe();
- }catch(e){$('#m').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
+ }catch(e){if(my===rid)$('#m').innerHTML='<div class="empty">'+esc(e.message)+'<br><button class="ghost" id="retry" style="margin-top:12px">Try again</button></div>'}
 }
 function drawAtt(){
  const L=list();let p=0,ab=0;L.forEach(s=>{const t=att[s.id];if(t&&t.status==='P')p++;if(t&&t.status==='A')ab++});
@@ -294,12 +295,15 @@ let memon=new Date().toISOString().slice(0,7);
 async function drawUsr(){
  $('#m').innerHTML=`<div class="card"><h3>${ico('users')}Add user</h3><div class="two"><label class="fi">${ico('mail')}<input id="ue" type="email" placeholder="Email"></label><label class="fi">${ico('user')}<input id="un" placeholder="Name"></label></div><div class="two" style="margin-top:10px"><label class="fi">${ico('layers')}<select id="ur"><option value="teacher">Teacher</option><option value="admin">Admin</option></select></label><button id="uadd" class="cta" style="margin:0">${ico('send')}Add user</button></div><small style="margin-top:8px">Students log in with the email saved on their student record.</small></div><div id="ul"><div class="empty">Loading…</div></div><div class="card"><h3>${ico('file')}Recent activity</h3><div id="au"><small>Loading…</small></div></div>`;
  const L=await api('/users');
+ if(pg!=='usr'||!$('#ul'))return;
  $('#ul').innerHTML=L.map(u=>`<div class="srow">${av(u.name||u.email)}<div class="who"><b>${esc(u.name)}</b><small>${esc(u.email)}</small></div><div class="act"><span class="chip2">${esc(u.role)}</span>${u.email===auth.user.email?'':`<button class="dbtn d" data-udel="${esc(u.email)}">${ico('trash')}Remove</button>`}</div></div>`).join('');
  try{const L2=await api('/audit');
+  if(pg!=='usr'||!$('#au'))return;
   $('#au').innerHTML=L2.length?L2.slice(0,40).map(a=>`<div class="line" style="align-items:flex-start"><div><b style="font-size:14px">${esc(a.action.replace(/_/g,' '))}</b><small>${esc(a.who||'')}${a.detail?' · '+esc(a.detail):''}</small></div><small style="text-align:right;white-space:nowrap">${esc(new Date(a.at).toLocaleString([],{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}))}<br>${esc(a.ip||'')}</small></div>`).join(''):'<small>Nothing yet.</small>'}catch(e){$('#au').innerHTML='<small>Could not load.</small>'}
 }
 async function drawMe(){
  const r=await api('/my?month='+memon),s=r.student;
+ if(pg!=='me')return;
  const P=r.attendance.filter(a=>a.status==='P').length,Ab=r.attendance.length-P;
  $('#m').innerHTML=`<div class="card"><div class="wah">${av(s.name)}<div><b style="font-size:20px">${esc(s.name)}</b><small>Standard ${esc(s.cls)}${s.roll?', roll '+esc(s.roll):''}</small><small>${esc(s.phone||'')}${s.phone&&s.email?' · ':''}${esc(s.email||'')}</small></div></div></div>
  <div class="filters" style="grid-template-columns:1fr"><label class="fi">${ico('calendar')}<input type="month" id="memon" value="${memon}"></label></div>
@@ -439,6 +443,7 @@ m.addEventListener('change',async e=>{const t=e.target;
  if(t.id==='memon'&&t.value){memon=t.value;drawMe()}});
 m.addEventListener('click',async e=>{const t=e.target.closest('button');if(!t)return;
  try{
+ if(t.id==='retry'){render();return}
  if(t.dataset.st){setAtt(t.closest('.row').dataset.id,t.dataset.st);return}
 if(t.id==='uadd'){await api('/users',{method:'POST',body:{email:$('#ue').value.trim(),name:$('#un').value.trim(),role:$('#ur').value}});await drawUsr();return}
  if(t.dataset.udel){if(confirm('Remove this user? They will be logged out.')){await api('/users/'+encodeURIComponent(t.dataset.udel),{method:'DELETE'});await drawUsr()}return}

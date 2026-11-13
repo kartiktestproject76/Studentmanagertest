@@ -15,3 +15,5 @@ You must do (outside the code)
 4. Never put passwords, API keys or .env files on GitHub. Keep the GitHub repository private.
 5. Export your data (Students page > Reports, or Atlas > Collections > Export) once a month. The free Atlas plan has no backups.
 6. Keep admins few. If a phone or email is lost: Users page > Remove the person (they are logged out immediately), or change the email on the student record.
+
+7. Never keep passwords, API keys or tokens in a text file inside the project folder. If a key was ever shared or uploaded, create a new one and delete the old one (MongoDB password, Brevo API key, Turso token).
