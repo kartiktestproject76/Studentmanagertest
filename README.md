@@ -72,4 +72,4 @@ Before deploying the frontend, update the API base URL constant near the top of 
 
 See `SECURITY.md` for the security checklist.
 
-Send file: admin page "Send file" sends one file (PDF, picture, Word, Excel, PowerPoint, text, MP4; up to 10 MB) to every parent of one standard through the linked WhatsApp. Needs WA_UNOFFICIAL=true and the QR code scanned on the Students page.
+Send to standard: admin page "Send" sends a message, a file, or both to every parent of one standard. A message alone works with or without the linked WhatsApp (without it, chats open one by one). A file needs the linked WhatsApp (WA_UNOFFICIAL=true and the QR code scanned on the Students page). Files: PDF, picture, Word, Excel, PowerPoint, text, MP4, up to 10 MB.

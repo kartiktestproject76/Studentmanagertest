@@ -390,6 +390,28 @@ async function fileRecipients(cls){
  const S=(await getStudents()).filter(s=>s.cls===cls),seen=new Set(),list=[];let noPhone=0;
  for(const s of S){const to=phoneOf(s.phone);if(!to||to.length<10){noPhone++;continue}if(seen.has(to))continue;seen.add(to);list.push({to,name:s.name})}
  return{students:S.length,noPhone,list}}
+async function broadcast(list,msg){
+ const gap=+process.env.FILE_SEND_GAP_MS||3000;
+ try{for(const x of list){
+  try{if(waState!=='connected'||!sock)throw new Error('WhatsApp is not connected.');
+   const jid=x.to+'@s.whatsapp.net',[c]=await sock.onWhatsApp(jid);
+   if(!c||!c.exists)throw new Error(x.name+': this number is not on WhatsApp');
+   await sock.sendMessage(c.jid||jid,msg);job.sent++}
+  catch(e){job.failed++;job.lastError=e.message;if(/not connected/i.test(e.message))break}
+  await new Promise(z=>setTimeout(z,gap+Math.random()*gap))}}
+ finally{job.running=false}}
+app.post('/api/messages/send',limit(20,3600e3,r=>'msg|'+r.user.email),h(async(req,res)=>{
+ const cls=str(req.body&&req.body.cls,20),text=str(req.body&&req.body.text,1000);
+ if(!cls)throw bad('Choose a standard.');if(!text)throw bad('Type a message first.');
+ const r=await fileRecipients(cls);if(!r.list.length)throw bad('No student in this standard has a WhatsApp number.');
+ if(waMode()!=='baileys'){await audit(req,'message_prepared',cls+' | '+r.list.length+' numbers');
+  return res.json({linkMode:true,noPhone:r.noPhone,items:r.list.map(x=>({name:x.name,cls,link:'https://wa.me/'+x.to+'?text='+encodeURIComponent(text)}))})}
+ if(waState!=='connected'||!sock)throw bad('WhatsApp is not connected. Open the Students page and scan the QR code.');
+ if(job.running)throw new HttpErr(409,'Messages are already being sent. Please wait until they finish.');
+ Object.assign(job,{running:true,sent:0,failed:0,total:r.list.length,lastError:''});
+ await audit(req,'message_sent',cls+' | '+r.list.length+' numbers | '+text.slice(0,60));
+ res.json({queued:r.list.length,skippedNoNumber:r.noPhone});
+ broadcast(r.list,{text})}));
 app.get('/api/files/preview',h(async(req,res)=>{
  const cls=str(req.query.cls,20);if(!cls)throw bad('Choose a standard.');
  const r=await fileRecipients(cls);res.json({students:r.students,noPhone:r.noPhone,recipients:r.list.length})}));
@@ -410,14 +432,7 @@ app.post('/api/files/send',express.raw({type:()=>true,limit:'10mb'}),limit(10,36
  res.json({queued:r.list.length,skippedNoNumber:r.noPhone});
  const mime=FILE_TYPES[ext],cap=caption?{caption}:{};
  const msg=['jpg','jpeg','png','webp','gif'].includes(ext)?{image:buf,...cap}:ext==='mp4'?{video:buf,...cap}:{document:buf,mimetype:mime,fileName:name,...cap};
- try{for(const x of r.list){
-  try{if(waState!=='connected'||!sock)throw new Error('WhatsApp is not connected.');
-   const jid=x.to+'@s.whatsapp.net',[c]=await sock.onWhatsApp(jid);
-   if(!c||!c.exists)throw new Error(x.name+': this number is not on WhatsApp');
-   await sock.sendMessage(c.jid||jid,msg);job.sent++}
-  catch(e){job.failed++;job.lastError=e.message;if(/not connected/i.test(e.message))break}
-  await new Promise(z=>setTimeout(z,(+process.env.FILE_SEND_GAP_MS||3000)+Math.random()*(+process.env.FILE_SEND_GAP_MS||4000)))}}
- finally{job.running=false}}));
+ broadcast(r.list,msg)}));
 
 app.use('/api',(req,res)=>res.status(404).json({error:'Not found'}));
 app.use((err,req,res,next)=>{res.status(err&&err.status&&err.status<500?err.status:400).json({error:err&&err.status===413?'The file is too big (maximum 10 MB).':'Invalid request'})});
