@@ -373,8 +373,54 @@ app.post('/api/send-all',limit(30,3600e3,r=>'sendall|'+r.user.email),h(async(req
   await new Promise(z=>setTimeout(z,waMode()==='baileys'?3000+Math.random()*4000:250))}}
  finally{job.running=false}}));
 
+// ---------- Send one file to every parent in a standard (needs the linked WhatsApp) ----------
+const FILE_TYPES={pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xls:'application/vnd.ms-excel',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',ppt:'application/vnd.ms-powerpoint',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',txt:'text/plain',mp4:'video/mp4'};
+const sniff=(b,ext)=>{const is=(t,o=0)=>b.subarray(o,o+t.length).toString('latin1')===t;
+ if(ext==='pdf')return is('%PDF');
+ if(ext==='jpg'||ext==='jpeg')return b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF;
+ if(ext==='png')return b[0]===0x89&&is('PNG',1);
+ if(ext==='gif')return is('GIF8');
+ if(ext==='webp')return is('RIFF')&&is('WEBP',8);
+ if(['docx','xlsx','pptx'].includes(ext))return b[0]===0x50&&b[1]===0x4B;
+ if(['doc','xls','ppt'].includes(ext))return b[0]===0xD0&&b[1]===0xCF&&b[2]===0x11&&b[3]===0xE0;
+ if(ext==='mp4')return is('ftyp',4);
+ if(ext==='txt')return !b.subarray(0,2000).includes(0);
+ return false};
+async function fileRecipients(cls){
+ const S=(await getStudents()).filter(s=>s.cls===cls),seen=new Set(),list=[];let noPhone=0;
+ for(const s of S){const to=phoneOf(s.phone);if(!to||to.length<10){noPhone++;continue}if(seen.has(to))continue;seen.add(to);list.push({to,name:s.name})}
+ return{students:S.length,noPhone,list}}
+app.get('/api/files/preview',h(async(req,res)=>{
+ const cls=str(req.query.cls,20);if(!cls)throw bad('Choose a standard.');
+ const r=await fileRecipients(cls);res.json({students:r.students,noPhone:r.noPhone,recipients:r.list.length})}));
+app.post('/api/files/send',express.raw({type:()=>true,limit:'10mb'}),limit(10,3600e3,r=>'file|'+r.user.email),h(async(req,res)=>{
+ if(waMode()!=='baileys')throw bad('Sending files needs the linked WhatsApp. Connect it on the Students page first.');
+ const cls=str(req.query.cls,20),caption=str(req.query.caption,500);
+ const name=str(req.query.name,120).replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_')||'file';
+ const ext=(name.includes('.')?name.split('.').pop():'').toLowerCase();
+ if(!cls)throw bad('Choose a standard.');
+ if(!FILE_TYPES[ext])throw bad('This file type is not allowed. Use PDF, image, Word, Excel, PowerPoint, text or MP4.');
+ const buf=req.body;if(!Buffer.isBuffer(buf)||!buf.length)throw bad('Choose a file first.');
+ if(!sniff(buf,ext))throw bad('This does not look like a real .'+ext+' file.');
+ if(waState!=='connected'||!sock)throw bad('WhatsApp is not connected. Open the Students page and scan the QR code.');
+ if(job.running)throw new HttpErr(409,'Messages are already being sent. Please wait until they finish.');
+ const r=await fileRecipients(cls);if(!r.list.length)throw bad('No student in this standard has a WhatsApp number.');
+ Object.assign(job,{running:true,sent:0,failed:0,total:r.list.length,lastError:''});
+ await audit(req,'file_sent',cls+' | '+name+' | '+r.list.length+' numbers');
+ res.json({queued:r.list.length,skippedNoNumber:r.noPhone});
+ const mime=FILE_TYPES[ext],cap=caption?{caption}:{};
+ const msg=['jpg','jpeg','png','webp','gif'].includes(ext)?{image:buf,...cap}:ext==='mp4'?{video:buf,...cap}:{document:buf,mimetype:mime,fileName:name,...cap};
+ try{for(const x of r.list){
+  try{if(waState!=='connected'||!sock)throw new Error('WhatsApp is not connected.');
+   const jid=x.to+'@s.whatsapp.net',[c]=await sock.onWhatsApp(jid);
+   if(!c||!c.exists)throw new Error(x.name+': this number is not on WhatsApp');
+   await sock.sendMessage(c.jid||jid,msg);job.sent++}
+  catch(e){job.failed++;job.lastError=e.message;if(/not connected/i.test(e.message))break}
+  await new Promise(z=>setTimeout(z,(+process.env.FILE_SEND_GAP_MS||3000)+Math.random()*(+process.env.FILE_SEND_GAP_MS||4000)))}}
+ finally{job.running=false}}));
+
 app.use('/api',(req,res)=>res.status(404).json({error:'Not found'}));
-app.use((err,req,res,next)=>{res.status(err&&err.status&&err.status<500?err.status:400).json({error:'Invalid request'})});
+app.use((err,req,res,next)=>{res.status(err&&err.status&&err.status<500?err.status:400).json({error:err&&err.status===413?'The file is too big (maximum 10 MB).':'Invalid request'})});
 
 (async()=>{try{ const url=process.env.TURSO_DATABASE_URL,authToken=process.env.TURSO_AUTH_TOKEN;
  if(!url)throw new Error('TURSO_DATABASE_URL is required');
