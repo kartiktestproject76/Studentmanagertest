@@ -71,5 +71,3 @@ Before deploying the frontend, update the API base URL constant near the top of 
 - This package has been syntax-checked, but it has not been tested against your live Turso database or Render account.
 
 See `SECURITY.md` for the security checklist.
-
-Send file: admin page "Send file" sends one file (PDF, picture, Word, Excel, PowerPoint, text, MP4; up to 10 MB) to every parent of one standard through the linked WhatsApp. Needs WA_UNOFFICIAL=true and the QR code scanned on the Students page.
